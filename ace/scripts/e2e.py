@@ -19,6 +19,11 @@ MANAGER_TOKEN = os.getenv("ACE_E2E_MANAGER_TOKEN", "test-internal-token")
 POSTGRES_DSN = os.getenv("ACE_E2E_POSTGRES_DSN", "postgresql://postgres:postgres@127.0.0.1:55432/postgres")
 FAKE_AGENT_DIR = Path(os.getenv("ACE_E2E_FAKE_AGENT_DIR", str(REPO_ROOT / "tests/orchestration/e2e/fake_agent")))
 FAKE_IMAGE_TAG = os.getenv("ACE_E2E_FAKE_IMAGE_TAG", "ace-agent:e2e")
+REAL_AGENT_DIR = Path(
+    os.getenv("ACE_E2E_REAL_AGENT_DIR", str(Path.home() / "Downloads/ace-agent-image"))
+)
+REAL_IMAGE_TAG = os.getenv("ACE_E2E_REAL_IMAGE_TAG", "ace-hermes:latest")
+REAL_AGENT_API_KEY = os.getenv("ACE_E2E_REAL_AGENT_ANTHROPIC_API_KEY", "dummy-key")
 
 
 @dataclass
@@ -137,6 +142,19 @@ def _cleanup_user_containers(user_id: str) -> None:
 def _build_fake_agent_image() -> None:
     _log("building fake agent image")
     _run(["docker", "build", "-t", FAKE_IMAGE_TAG, str(FAKE_AGENT_DIR)])
+
+
+def _build_real_agent_image() -> bool:
+    if not REAL_AGENT_DIR.exists():
+        _log(f"real agent repo not found at {REAL_AGENT_DIR}; skipping real-image scenario")
+        return False
+    dockerfile = REAL_AGENT_DIR / "Dockerfile"
+    if not dockerfile.exists():
+        _log(f"real agent Dockerfile missing at {dockerfile}; skipping real-image scenario")
+        return False
+    _log(f"building real agent image from {REAL_AGENT_DIR}")
+    _run(["docker", "build", "-t", REAL_IMAGE_TAG, str(REAL_AGENT_DIR)])
+    return True
 
 
 def _new_user(user: E2EUser) -> dict[str, Any]:
@@ -285,19 +303,86 @@ def _scenario_timeout_cleanup() -> None:
         _cleanup_user_containers(user.user_id)
 
 
+def _scenario_real_image_roundtrip() -> None:
+    user = _new_user_obj("real-image")
+    _insert_auth_user(user)
+    try:
+        _log("scenario 6: real image provision -> deploy fake image -> rollback to current ace-hermes")
+        op_id = _enqueue(
+            "/new-user",
+            {
+                "user_id": user.user_id,
+                "image_tag": REAL_IMAGE_TAG,
+                "env_overrides": {"ANTHROPIC_API_KEY": REAL_AGENT_API_KEY},
+                "start_immediately": True,
+            },
+        )
+        provision = _poll_operation(op_id, timeout=240)
+        _assert(provision["status"] == "succeeded", f"real-image new-user failed: {provision}")
+
+        st = _status(user.user_id)
+        _assert(st["runtime_status"] == "active", f"real-image runtime should be active: {st}")
+        _assert(st["active_image_tag"] == REAL_IMAGE_TAG, f"real-image tag mismatch: {st}")
+
+        deploy_op = _enqueue(
+            f"/deploy/{user.user_id}",
+            {"image_tag": FAKE_IMAGE_TAG, "env_overrides": {}, "keep_previous_warm_seconds": 0},
+        )
+        deploy_result = _poll_operation(deploy_op, timeout=240)
+        _assert(deploy_result["status"] == "succeeded", f"real-image deploy failed: {deploy_result}")
+
+        post_deploy = _status(user.user_id)
+        _assert(post_deploy["runtime_status"] == "active", f"post-deploy runtime should be active: {post_deploy}")
+        _assert(post_deploy["active_image_tag"] == FAKE_IMAGE_TAG, f"post-deploy tag mismatch: {post_deploy}")
+        _assert(
+            post_deploy["previous_image_tag"] == REAL_IMAGE_TAG,
+            f"previous image should point at real image: {post_deploy}",
+        )
+
+        rollback_op = _enqueue(f"/rollback/{user.user_id}", {"reason": "e2e real image rollback"})
+        rollback_result = _poll_operation(rollback_op, timeout=240)
+        _assert(rollback_result["status"] == "succeeded", f"real-image rollback failed: {rollback_result}")
+
+        post_rollback = _status(user.user_id)
+        _assert(
+            post_rollback["runtime_status"] == "active",
+            f"post-rollback runtime should be active: {post_rollback}",
+        )
+        _assert(
+            post_rollback["active_image_tag"] == REAL_IMAGE_TAG,
+            f"rollback should restore real image: {post_rollback}",
+        )
+    finally:
+        _cleanup_user_containers(user.user_id)
+
+
 def main() -> int:
     _log("memory profile: low (single-user scenarios with cleanup between runs)")
     _wait_manager()
     _build_fake_agent_image()
+    built_real_image = _build_real_agent_image()
 
     _scenario_happy_path()
     _scenario_pre_cutover_failure()
     _scenario_post_cutover_rollback()
     _scenario_lock_conflict()
     _scenario_timeout_cleanup()
+    if built_real_image:
+        _scenario_real_image_roundtrip()
 
     _log("all E2E scenarios passed")
-    print(json.dumps({"status": "ok", "manager": MANAGER_URL, "memory_profile": "low"}, indent=2))
+    print(
+        json.dumps(
+            {
+                "status": "ok",
+                "manager": MANAGER_URL,
+                "memory_profile": "low",
+                "real_image_tested": built_real_image,
+                "real_image_tag": REAL_IMAGE_TAG if built_real_image else None,
+            },
+            indent=2,
+        )
+    )
     return 0
 
 
