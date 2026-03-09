@@ -1,0 +1,27 @@
+# Default: ignore everything
+*
+
+# Include only files needed by ace-net-manager E2E image
+!ace_net_manager/**
+!db/**
+!audio/**
+!scope_config.py
+!requirements.prod.txt
+
+# Keep migration and e2e fixtures
+!tests/orchestration/e2e/**
+
+# Keep optional docs/scripts used by e2e host runner (not required in image but harmless)
+!scripts/e2e.py
+
+# Explicitly ignore Python caches/artifacts
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+**/*.pyd
+*.db
+*.sqlite
+*.sqlite3
+.git/
+.venv/
+node_modules/

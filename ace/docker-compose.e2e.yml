@@ -1,0 +1,58 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: ace-e2e-postgres
+    environment:
+      POSTGRES_DB: postgres
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "55432:5432"
+    volumes:
+      - ./tests/orchestration/e2e/init_auth.sql:/docker-entrypoint-initdb.d/001-init-auth.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d postgres"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    networks:
+      - ace-net
+
+  ace-net-manager:
+    build:
+      context: .
+      dockerfile: ace_net_manager/Dockerfile.e2e
+    container_name: ace-e2e-manager
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/postgres
+      ACE_INTERNAL_API_TOKEN: test-internal-token
+      ACE_DOCKER_NETWORK: ace-net
+      ACE_AGENT_INTERNAL_PORT: 8080
+      ACE_DEFAULT_IMAGE_TAG: ace-agent:e2e
+      ACE_CONTAINER_STARTUP_GRACE_SECONDS: 5
+      ACE_HEALTH_TIMEOUT_SECONDS: 90
+      ACE_HEALTH_POLL_INTERVAL_SECONDS: 2
+      ACE_OP_MAX_SECONDS: 180
+      ACE_KEEP_PREVIOUS_WARM_SECONDS: 0
+      ACE_MAX_GLOBAL_CONCURRENT_OPS: 1
+      ACE_ENABLE_GATEWAY_CUTOVER: "true"
+      ACE_STALE_OPERATION_GRACE_MINUTES: 10
+      ACE_HEALTH_USE_PUBLISHED_PORT_FALLBACK: "true"
+    ports:
+      - "18100:8100"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8100/healthz', timeout=2).read()\""]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    networks:
+      - ace-net
+
+networks:
+  ace-net:
+    name: ace-net
