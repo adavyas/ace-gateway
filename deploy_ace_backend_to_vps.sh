@@ -2,17 +2,18 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-LOCAL_BACKEND_DIR="${PROJECT_ROOT}/ace"
+PROJECT_ROOT="${SCRIPT_DIR}"
+LOCAL_BACKEND_DIR="${PROJECT_ROOT}"
 
 VPS_HOST="${VPS_HOST:-15.204.88.57}"
 VPS_USER="${VPS_USER:-ubuntu}"
 VPS_SSH_KEY="${VPS_SSH_KEY:-${HOME}/.ssh/id_ed25519}"
 
 ACE_VPS_BACKEND_DIR="${ACE_VPS_BACKEND_DIR:-/opt/ace/backend}"
-ACE_VPS_SERVICE_NAME="${ACE_VPS_SERVICE_NAME:-ace-backend}"
-ACE_VPS_PORT="${ACE_VPS_PORT:-7777}"
-ACE_VPS_WORKERS="${ACE_VPS_WORKERS:-1}"
+ACE_VPS_COMPOSE_FILE="${ACE_VPS_COMPOSE_FILE:-docker-compose.vps.yml}"
+ACE_VPS_GATEWAY_SERVICE="${ACE_VPS_GATEWAY_SERVICE:-gateway}"
+ACE_VPS_MANAGER_SERVICE="${ACE_VPS_MANAGER_SERVICE:-ace-net-manager}"
+ACE_VPS_DOCKER_NETWORK="${ACE_VPS_DOCKER_NETWORK:-ace-net}"
 
 DRY_RUN=0
 if [[ "${1:-}" == "--dry-run" ]]; then
@@ -24,8 +25,8 @@ if [[ ! -d "${LOCAL_BACKEND_DIR}" ]]; then
   exit 1
 fi
 
-if [[ ! -f "${LOCAL_BACKEND_DIR}/main.py" ]]; then
-  echo "Expected ${LOCAL_BACKEND_DIR}/main.py to exist." >&2
+if [[ ! -f "${LOCAL_BACKEND_DIR}/${ACE_VPS_COMPOSE_FILE}" ]]; then
+  echo "Expected ${LOCAL_BACKEND_DIR}/${ACE_VPS_COMPOSE_FILE} to exist." >&2
   exit 1
 fi
 
@@ -63,41 +64,12 @@ set -euo pipefail
 sudo mkdir -p "${ACE_VPS_BACKEND_DIR}"
 sudo chown -R "${VPS_USER}:${VPS_USER}" "${ACE_VPS_BACKEND_DIR}"
 cd "${ACE_VPS_BACKEND_DIR}"
-
-python3 -m venv .venv
-source .venv/bin/activate
-pip install --upgrade pip
-if [[ -f requirements.prod.txt ]]; then
-  pip install -r requirements.prod.txt
-else
-  pip install -r requirements.txt
-fi
-
-cat <<UNIT | sudo tee /etc/systemd/system/${ACE_VPS_SERVICE_NAME}.service >/dev/null
-[Unit]
-Description=ACE Backend API
-After=network.target
-
-[Service]
-Type=simple
-User=${VPS_USER}
-WorkingDirectory=${ACE_VPS_BACKEND_DIR}
-Environment=PORT=${ACE_VPS_PORT}
-ExecStart=${ACE_VPS_BACKEND_DIR}/.venv/bin/uvicorn main:app --host 127.0.0.1 --port ${ACE_VPS_PORT} --workers ${ACE_VPS_WORKERS}
-Restart=always
-RestartSec=5
-
-[Install]
-WantedBy=multi-user.target
-UNIT
-
-sudo systemctl daemon-reload
-sudo systemctl enable --now ${ACE_VPS_SERVICE_NAME}
-sudo systemctl restart ${ACE_VPS_SERVICE_NAME}
-sudo systemctl status ${ACE_VPS_SERVICE_NAME} --no-pager --lines=30
+docker network inspect "${ACE_VPS_DOCKER_NETWORK}" >/dev/null 2>&1 || docker network create "${ACE_VPS_DOCKER_NETWORK}"
+docker compose -f "${ACE_VPS_COMPOSE_FILE}" up -d --build "${ACE_VPS_GATEWAY_SERVICE}" "${ACE_VPS_MANAGER_SERVICE}"
+docker compose -f "${ACE_VPS_COMPOSE_FILE}" ps
 EOF
 
-echo "Bootstrapping service ${ACE_VPS_SERVICE_NAME} on VPS"
+echo "Bootstrapping compose services on VPS"
 ssh "${SSH_ARGS[@]}" "${REMOTE_BOOTSTRAP}"
 
 echo "Deployment complete."

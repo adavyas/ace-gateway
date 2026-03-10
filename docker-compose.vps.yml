@@ -1,0 +1,82 @@
+services:
+  gateway:
+    build:
+      context: .
+      dockerfile: Dockerfile.control-plane
+    container_name: ace-gateway
+    command:
+      - uvicorn
+      - gateway.main:app
+      - --host
+      - 0.0.0.0
+      - --port
+      - "7777"
+      - --workers
+      - "1"
+    env_file:
+      - .env
+    environment:
+      ACE_DOCKER_NETWORK: ${ACE_DOCKER_NETWORK:-ace-net}
+      API_PORT: "7777"
+      ACE_RUNTIME_CONTAINER_PORT: "8080"
+      ACE_RUNTIME_DATA_MOUNT: "/data/ace"
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL}
+      ACE_INTERNAL_API_TOKEN: ${ACE_INTERNAL_API_TOKEN}
+      TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN}
+      LINQ_WEBHOOK_TOKEN: ${LINQ_WEBHOOK_TOKEN}
+      LINQ_REPLY_URL: ${LINQ_REPLY_URL:-}
+      LINQ_API_KEY: ${LINQ_API_KEY:-}
+      LINQ_API_KEY_HEADER: ${LINQ_API_KEY_HEADER:-Authorization}
+    ports:
+      - "127.0.0.1:${ACE_GATEWAY_PORT:-7777}:7777"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:7777/health', timeout=2).read()\""]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+    networks:
+      - ace-net
+
+  ace-net-manager:
+    build:
+      context: .
+      dockerfile: Dockerfile.control-plane
+    container_name: ace-net-manager
+    command:
+      - uvicorn
+      - ace_net_manager.main:app
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8100"
+      - --workers
+      - "1"
+    env_file:
+      - .env
+    environment:
+      ACE_DOCKER_NETWORK: ${ACE_DOCKER_NETWORK:-ace-net}
+      ACE_BIND_HOST: 0.0.0.0
+      ACE_BIND_PORT: "8100"
+      ACE_AGENT_INTERNAL_PORT: "8080"
+      ACE_AGENT_DATA_MOUNT: "/data/ace"
+      ACE_PRESERVE_FAILED_CONTAINERS: "true"
+    ports:
+      - "127.0.0.1:${ACE_MANAGER_PORT:-8100}:8100"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8100/healthz', timeout=2).read()\""]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+    networks:
+      - ace-net
+
+networks:
+  ace-net:
+    external: true
+    name: ${ACE_DOCKER_NETWORK:-ace-net}

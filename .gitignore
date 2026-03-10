@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.env
+.venv
+env/
+dist/
+build/
+*.egg-info/
+.pytest_cache/
+
+# Jupyter
+.ipynb_checkpoints
+
+# IDEs
+.vscode/
+.idea/
+.DS_Store
+
+# Mac
+.AppleDouble
+.LSOverride
+._*
+.Trashes
+
+# Local data
+*.db
+*.sqlite
+*.sqlite3
+*.log

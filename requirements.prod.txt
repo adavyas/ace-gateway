@@ -1,0 +1,13 @@
+fastapi
+uvicorn[standard]
+python-dotenv
+requests
+httpx
+python-multipart
+sqlalchemy
+alembic
+python-jose[cryptography]
+pgvector
+psycopg2-binary
+docker
+websockets
