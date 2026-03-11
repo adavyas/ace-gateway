@@ -82,6 +82,9 @@ ACE_RUNTIME_SKILLS_MOUNT = os.getenv("ACE_RUNTIME_SKILLS_MOUNT", "/global_skills
 # Messaging ingress
 PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "").rstrip("/")
 ACE_INTERNAL_API_TOKEN = os.getenv("ACE_INTERNAL_API_TOKEN", "").strip()
+AUTH_STATE_SIGNING_KEY = os.getenv("AUTH_STATE_SIGNING_KEY", "").strip() or os.getenv("SECRET_KEY", "dev-insecure-secret")
+AUTH_SESSION_TTL_SECONDS = _env_int("AUTH_SESSION_TTL_SECONDS", 900)
+GOOGLE_OAUTH_SCOPES = os.getenv("GOOGLE_OAUTH_SCOPES", "openid email profile").strip() or "openid email profile"
 TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN", "").strip()
 TWILIO_REPLY_CHAR_LIMIT = _env_int("TWILIO_REPLY_CHAR_LIMIT", 1200)
 LINQ_WEBHOOK_TOKEN = os.getenv("LINQ_WEBHOOK_TOKEN", "").strip()
